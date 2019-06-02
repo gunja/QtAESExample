@@ -24,5 +24,6 @@ INCLUDEPATH += $$PWD/../bricke_module/
 qnx: target.path = /tmp/$${TARGET}/bin
 else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
+win32: LIBS += bcrypt.lib
 
 HEADERS += $$PWD/../bricke_module/qaesencryption.h
