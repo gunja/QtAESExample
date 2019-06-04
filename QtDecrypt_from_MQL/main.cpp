@@ -13,6 +13,189 @@
 
 #include <QElapsedTimer>
 
+class wAPI_AES_ECB_Decryptor
+{
+    BCRYPT_ALG_HANDLE hAesAlg;
+    BCRYPT_KEY_HANDLE hKey;
+    NTSTATUS    status;
+    DWORD cbCipherText, cbPlainText, cbPlainTextDone, cbData, cbKeyObject, cbBlockLen, cbBlob;
+    PBYTE pbCipherText, pbPlainText, pbKeyObject, pbBlob;
+    bool valid;
+    public:
+        wAPI_AES_ECB_Decryptor()
+        {
+            //BCRYPT_AES_ALGORITHM
+            hAesAlg = NULL;
+            hKey = NULL;
+            status = STATUS_UNSUCCESSFUL;
+            cbCipherText = 0;
+            cbPlainText                 = 0;
+            cbPlainTextDone                 = 0;
+            cbData = 0;
+            cbKeyObject = 0;
+            cbBlockLen = 0;
+            cbBlob = 0;
+            pbCipherText = NULL;
+            pbPlainText = NULL;
+            pbKeyObject = NULL;
+            pbBlob = NULL;
+            if(!NT_SUCCESS(status = BCryptOpenAlgorithmProvider( &hAesAlg, BCRYPT_AES_ALGORITHM, NULL, 0)))
+            {
+                qDebug()<<"**** Error "<<status<<" returned by BCryptOpenAlgorithmProvider\n";
+                return;
+            }
+            if(!NT_SUCCESS(status = BCryptGetProperty(
+                                                   hAesAlg,
+                                                   BCRYPT_OBJECT_LENGTH,
+                                                   (PBYTE)&cbKeyObject,
+                                                   sizeof(DWORD),
+                                                   &cbData,
+                                                   0)))
+               {
+                   qDebug()<<"**** Error "<<status<<" returned by BCryptGetProperty\n";
+                   return;
+               }
+            // Allocate the key object on the heap.
+            pbKeyObject = (PBYTE)HeapAlloc (GetProcessHeap (), 0, cbKeyObject);
+            if(NULL == pbKeyObject)
+            {
+                qDebug()<<"**** memory allocation failed\n";
+                return;
+            }
+
+           // Calculate the block length for the IV.
+            if(!NT_SUCCESS(status = BCryptGetProperty(
+                                                hAesAlg,
+                                                BCRYPT_BLOCK_LENGTH,
+                                                (PBYTE)&cbBlockLen,
+                                                sizeof(DWORD),
+                                                &cbData,
+                                                0)))
+            {
+                qDebug()<<"**** Error "<<status<<" returned by BCryptGetProperty";
+                return;
+            }
+
+            if(!NT_SUCCESS(status = BCryptSetProperty(
+                                            hAesAlg,
+                                            BCRYPT_CHAINING_MODE,
+                                            (PBYTE)BCRYPT_CHAIN_MODE_ECB,
+                                            sizeof(BCRYPT_CHAIN_MODE_ECB),
+                                            0)))
+            {
+                qDebug()<<"**** Error "<<status<<" returned by BCryptSetProperty";
+                return;
+            }
+        }
+        ~wAPI_AES_ECB_Decryptor()
+        {
+            if(hAesAlg)
+            {
+                BCryptCloseAlgorithmProvider(hAesAlg,0);
+            }
+
+            if (hKey)
+            {
+                BCryptDestroyKey(hKey);
+            }
+
+            if(pbCipherText)
+            {
+                HeapFree(GetProcessHeap(), 0, pbCipherText);
+            }
+
+            if(pbPlainText)
+            {
+                HeapFree(GetProcessHeap(), 0, pbPlainText);
+            }
+
+            if(pbKeyObject)
+            {
+                HeapFree(GetProcessHeap(), 0, pbKeyObject);
+            }
+        }
+        QByteArray decrypt(const QByteArray &rawText, const QByteArray &key)
+        {
+            QByteArray exactKey (key);
+            bool rvOK = false;
+            QByteArray retVal;
+            if(exactKey.size() >= 32) exactKey = key.left(32);
+            else if (exactKey.size() >= 24) exactKey = key.left(24);
+            else if (exactKey.size() >= 16) exactKey = key.left(16);
+            else {
+                qDebug()<<"dont know how to handle key length "<<key.size();
+            }
+            if(!NT_SUCCESS(status = BCryptGenerateSymmetricKey(
+                                                    hAesAlg,
+                                                    &hKey,
+                                                    pbKeyObject,
+                                                    cbKeyObject,
+                                                    (PBYTE)exactKey.constData() ,
+                                                    exactKey.size(),
+                                                    0)))
+            {
+                qDebug()<<"**** Error "<<status<<" returned by BCryptGenerateSymmetricKey";
+                return retVal;
+            }
+            cbCipherText = rawText.size();
+            pbCipherText = (PBYTE)HeapAlloc (GetProcessHeap (), 0, cbCipherText);
+            if(NULL == pbCipherText)
+            {
+                qDebug()<<"**** memory allocation failed";
+                return retVal;
+            }
+
+            memcpy(pbCipherText, rawText.constData(), cbCipherText );
+
+            //
+            // Get the output buffer size.
+            //
+            if(!NT_SUCCESS(status = BCryptDecrypt(
+                                            hKey,
+                                            pbCipherText,
+                                            cbCipherText,
+                                            NULL,
+                                            NULL,
+                                            0,
+                                            NULL,
+                                            0,
+                                            &cbPlainText,
+                                            BCRYPT_BLOCK_PADDING)))
+            {
+                qDebug()<<"**** Error "<<status<<" returned by BCryptDecrypt" ;
+                return retVal;
+            }
+
+            pbPlainText = (PBYTE)HeapAlloc (GetProcessHeap (), 0, cbPlainText);
+            if(NULL == pbPlainText)
+            {
+                qDebug()<<"**** memory allocation failed";
+                return retVal;
+            }
+
+            if(!NT_SUCCESS(status = BCryptDecrypt(
+                                            hKey,
+                                            pbCipherText,
+                                            cbCipherText,
+                                            NULL,
+                                            NULL,
+                                            0,
+                                            pbPlainText,
+                                            cbPlainText,
+                                            &cbPlainTextDone,
+                                            //BCRYPT_BLOCK_PADDING)))
+                               //BCRYPT_PAD_NONE )))
+                               0 )))
+            {
+                qDebug()<<"**** Error "<<hex<<(unsigned)status<<" returned by BCryptDecrypt" ;
+                return retVal;
+            }
+
+            rvOK = true;
+            retVal = QByteArray(reinterpret_cast<char*>(pbPlainText), rawText.size());
+            return retVal;
+        }
+};
 
 // key length is determinedd automatically.
 // ECB mode
@@ -262,5 +445,18 @@ int main(int argc, char *argv[])
     qDebug() << "The slow operation took" << timer2.nsecsElapsed() << "nanoseconds";
     qDebug()<<"Resulted string in one move WinAPI  is\n"<<
               qbr2;
+    wAPI_AES_ECB_Decryptor deca;
+    timer2.start();
+    qbr2 = deca.decrypt(line, qbKey);
+    qDebug() << "Only decode operation took" << timer2.nsecsElapsed() << "nanoseconds";
+    qDebug()<<"Resulted string in one move WinAPI  is\n"<<
+              qbr2;
+    qDebug()<<"Confirmation that internal objects of class are capable to decode again. Preferrably to use another key/text pair";
+    timer2.start();
+    qbr2 = deca.decrypt(line, qbKey);
+    qDebug() << "Only decode second time operation took" << timer2.nsecsElapsed() << "nanoseconds";
+    qDebug()<<"Resulted string in one move WinAPI  is\n"<<
+              qbr2;
+
     return 0;
 }
