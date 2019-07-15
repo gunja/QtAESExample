@@ -17,7 +17,10 @@ DEFINES += QT_DEPRECATED_WARNINGS
 
 SOURCES += \
         main.cpp \
+        wapi_enc.cpp \
+    wapi_dec.cpp \
     ../bricke_module/qaesencryption.cpp
+
 INCLUDEPATH += $$PWD/../bricke_module/
 
 # Default rules for deployment.
@@ -26,4 +29,9 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
 win32: LIBS += bcrypt.lib
 
-HEADERS += $$PWD/../bricke_module/qaesencryption.h
+HEADERS += $$PWD/../bricke_module/qaesencryption.h\
+    wapi_enc.h \
+    wapi_dec.h \
+
+
+
